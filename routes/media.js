@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const fs = require('fs');
-const sharp = require('sharp');
 const Media = require('../models/Media');
 const upload = require('../middleware/upload');
 const { protect } = require('../middleware/auth');
+const cloudinary = require('../config/cloudinary');
 
 // @desc    Get all media
 // @route   GET /api/media
@@ -51,40 +49,20 @@ router.post('/upload', protect, upload.single('file'), async (req, res) => {
         }
 
         const file = req.file;
-        let optimizedPath = file.path;
-        let width, height;
 
-        // Optimize image with sharp
-        if (file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
-            const optimizedFilename = `optimized-${file.filename}`;
-            optimizedPath = path.join(path.dirname(file.path), optimizedFilename);
-
-            const metadata = await sharp(file.path)
-                .resize(1920, 1080, {
-                    fit: 'inside',
-                    withoutEnlargement: true
-                })
-                .webp({ quality: 85 })
-                .toFile(optimizedPath.replace(/\.[^.]+$/, '.webp'));
-
-            width = metadata.width;
-            height = metadata.height;
-
-            // Delete original file
-            fs.unlinkSync(file.path);
-
-            optimizedPath = optimizedPath.replace(/\.[^.]+$/, '.webp');
-        }
-
+        // Cloudinary returns the URL in file.path
         const media = await Media.create({
-            filename: path.basename(optimizedPath),
+            filename: file.filename, // Cloudinary Public ID
             originalName: file.originalname,
-            path: optimizedPath,
-            url: `/uploads/${path.basename(optimizedPath)}`,
-            mimetype: file.mimetype.includes('svg') ? file.mimetype : 'image/webp',
-            size: fs.statSync(optimizedPath).size,
-            width,
-            height,
+            path: file.path, // Full Cloudinary URL
+            url: file.path, // Map URL same as path for frontend compatibility
+            mimetype: file.mimetype,
+            size: file.size,
+            // Width and height might strictly require a breakdown or manual fetch if not provided by storage engine perfectly
+            // but usually cloudinary storage puts it in metadata if configured, or we accept it might be missing
+            // For now, allow them to be undefined or 0 as Cloudinary handles resizing on the fly via URL
+            width: 0,
+            height: 0,
             alt: req.body.alt || '',
             relatedTo: req.body.relatedTo ? JSON.parse(req.body.relatedTo) : undefined
         });
@@ -114,40 +92,15 @@ router.post('/upload-multiple', protect, upload.array('files', 10), async (req, 
         const mediaItems = [];
 
         for (const file of req.files) {
-            let optimizedPath = file.path;
-            let width, height;
-
-            // Optimize image with sharp
-            if (file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
-                const optimizedFilename = `optimized-${file.filename}`;
-                optimizedPath = path.join(path.dirname(file.path), optimizedFilename);
-
-                const metadata = await sharp(file.path)
-                    .resize(1920, 1080, {
-                        fit: 'inside',
-                        withoutEnlargement: true
-                    })
-                    .webp({ quality: 85 })
-                    .toFile(optimizedPath.replace(/\.[^.]+$/, '.webp'));
-
-                width = metadata.width;
-                height = metadata.height;
-
-                // Delete original file
-                fs.unlinkSync(file.path);
-
-                optimizedPath = optimizedPath.replace(/\.[^.]+$/, '.webp');
-            }
-
             const media = await Media.create({
-                filename: path.basename(optimizedPath),
+                filename: file.filename,
                 originalName: file.originalname,
-                path: optimizedPath,
-                url: `/uploads/${path.basename(optimizedPath)}`,
-                mimetype: file.mimetype.includes('svg') ? file.mimetype : 'image/webp',
-                size: fs.statSync(optimizedPath).size,
-                width,
-                height,
+                path: file.path,
+                url: file.path,
+                mimetype: file.mimetype,
+                size: file.size,
+                width: 0,
+                height: 0,
                 relatedTo: req.body.relatedTo ? JSON.parse(req.body.relatedTo) : undefined
             });
 
@@ -207,9 +160,15 @@ router.delete('/:id', protect, async (req, res) => {
             });
         }
 
-        // Delete file from disk
-        if (fs.existsSync(media.path)) {
-            fs.unlinkSync(media.path);
+        // Delete from Cloudinary
+        // filename in DB is usually the public_id for Cloudinary if using multer-storage-cloudinary
+        if (media.filename) {
+            try {
+                await cloudinary.uploader.destroy(media.filename);
+            } catch (err) {
+                console.error('Cloudinary delete error:', err);
+                // Continue to delete from DB even if Cloudinary fails
+            }
         }
 
         await media.deleteOne();
