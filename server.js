@@ -47,6 +47,36 @@ app.use('/api/categories', categoriesRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/faq', faqRoutes);
 
+// Root route
+app.get('/', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'Admin API is running',
+        version: '1.0.0',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// API root route
+app.get('/api', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'Admin API',
+        version: '1.0.0',
+        endpoints: {
+            health: '/api/health',
+            auth: '/api/auth',
+            services: '/api/services',
+            blogs: '/api/blogs',
+            categories: '/api/categories',
+            media: '/api/media',
+            faq: '/api/faq',
+            stats: '/api/stats'
+        },
+        timestamp: new Date().toISOString()
+    });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({
@@ -120,7 +150,16 @@ const createDefaultAdmin = async () => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Only start the server when not in Vercel
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+        createDefaultAdmin();
+    });
+} else {
+    // In Vercel, just create admin without listening
     createDefaultAdmin();
-});
+}
+
+// Export for Vercel serverless functions
+module.exports = app;
