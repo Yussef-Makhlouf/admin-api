@@ -28,10 +28,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // CORS
 app.use(cors({
     origin: [
-        process.env.FRONTEND_URL || 'http://localhost:3001',
-        process.env.MAIN_SITE_URL || 'http://localhost:3000',
-        'http://localhost:3000',
-        'http://localhost:3001'
+    '*' 
     ],
     credentials: true
 }));
